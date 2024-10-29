@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from datetime import datetime
 from typing import Dict, List, Union
 
 from nuvlaedge.common.utils import format_datetime_for_nuvla
@@ -22,6 +23,7 @@ DEFAULT_IMAGE_PULL_POLICY = "Always"
 
 NANOCORES = 1000000000
 KIB_TO_BYTES = 1024
+
 
 class TimeoutException(Exception):
     ...
@@ -52,6 +54,7 @@ class KubernetesClient(COEClient):
         super().__init__()
         config.load_incluster_config()
         self.client = client.CoreV1Api()
+        self.client_network = client.NetworkingV1Api()
         self.client_apps = client.AppsV1Api()
         self.client_batch_api = client.BatchV1Api()
         self.namespace = \
@@ -65,7 +68,104 @@ class KubernetesClient(COEClient):
         self.job_image_pull_policy = os.getenv('JOB_IMAGE_PULL_POLICY', DEFAULT_IMAGE_PULL_POLICY)
         self.data_gateway_name = f"data-gateway.{self.namespace}"
 
-    def list_raw_resources(self, resource_type) -> list[dict] | None:
+    @classmethod
+    def _sanitize_k8s_object(cls, data):
+        """Find and serialize all datetime objects in the data structure."""
+        if isinstance(data, dict):
+            to_skip = ['managed_fields']
+            res_dict = {}
+            for k, v in data.items():
+                if k in to_skip:
+                    continue
+                res_dict[k] = cls._sanitize_k8s_object(v)
+            return res_dict
+        elif isinstance(data, list):
+            return [cls._sanitize_k8s_object(element) for element in data]
+        elif isinstance(data, datetime):
+            return data.isoformat()
+        else:
+            return data
+
+    def list_raw_resources(self, resource_type: str) -> list[dict] | None:
+        match resource_type:
+            case 'nodes':
+                res = [self._sanitize_k8s_object(x.to_dict())
+                       for x in self.client.list_node().items]
+                for node in res:
+                    # remove images
+                    if 'status' in node and 'images' in node['status']:
+                        del node['status']['images']
+                return sorted(res,
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'images':
+                imgs = [self._sanitize_k8s_object(x.to_dict()) for x in
+                        self.client.read_node(
+                            self.host_node_name).status.images]
+                for img in imgs:
+                    img['names'] = sorted(img.pop('names'))
+                return sorted(imgs, key=lambda x: x['names'][0])
+            case 'configmaps':
+                res_list = []
+                for x in self.client.list_config_map_for_all_namespaces().items:
+                    if x.data:
+                        for k in x.data:
+                            x.data[k] = ''
+                    res_list.append(self._sanitize_k8s_object(x.to_dict()))
+                return sorted(res_list, key=lambda x: x['metadata']['creation_timestamp'])
+            case 'secrets':
+                res_list = []
+                for x in self.client.list_secret_for_all_namespaces().items:
+                    if x.data:
+                        for k in x.data:
+                            x.data[k] = ''
+                    res_list.append(self._sanitize_k8s_object(x.to_dict()))
+                return sorted(res_list, key=lambda x: x['metadata']['creation_timestamp'])
+            case 'namespaces':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client.list_namespace().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'persistentvolumes':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client.list_persistent_volume().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'persistentvolumeclaims':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client.list_persistent_volume_claim_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'services':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client.list_service_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'ingresses':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client_network.list_ingress_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'cronjobs':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client_batch_api.list_cron_job_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'jobs':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client_batch_api.list_job_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'statefulsets':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client_apps.list_stateful_set_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'daemonsets':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client_apps.list_daemon_set_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'deployments':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client_apps.list_deployment_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case 'pods':
+                return sorted([self._sanitize_k8s_object(x.to_dict()) for x in
+                               self.client.list_pod_for_all_namespaces().items],
+                              key=lambda x: x['metadata']['creation_timestamp'])
+            case _:
+                log.error(f'Unknown resource type: {resource_type}')
         return None
 
     @staticmethod
@@ -734,7 +834,7 @@ class KubernetesClient(COEClient):
 
         namespace = self._namespace(**kwargs)
 
-        log.info('Run pod %s in namespace %s', pod.to_str(), namespace)
+        log.info('Run pod %s in namespace %s', pod.metadata.name, namespace)
         try:
             self.client.create_namespaced_pod(namespace, pod)
             if no_output:
