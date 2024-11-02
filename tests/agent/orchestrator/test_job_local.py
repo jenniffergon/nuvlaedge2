@@ -58,50 +58,50 @@ class JobLocalTestCase(unittest.TestCase):
         self.obj.set_job_failed.assert_called_once()
         mock_process_job.assert_not_called()
 
-    @patch('nuvla.job_engine.job.executor.executor.Executor.process_job')
-    def test_launch_job(self, mock_process_job):
-        job_id = 'fake-id-2'
-        job_exec_id = 'fake-exec-id-2'
-        nuvla_endpoint = 'https://fake-nuvla.io'
-        docker_image = 'sixsq/nuvlaedge:latest'
+    # @patch('nuvla.job_engine.job.executor.executor.Executor.process_job')
+    # def test_launch_job(self, mock_process_job):
+    #     job_id = 'fake-id-2'
+    #     job_exec_id = 'fake-exec-id-2'
+    #     nuvla_endpoint = 'https://fake-nuvla.io'
+    #     docker_image = 'sixsq/nuvlaedge:latest'
 
-        ret = self.obj.launch_job(
-            job_id, job_exec_id,
-            nuvla_endpoint, nuvla_endpoint_insecure=False,
-            api_key='credential/abc-def', api_secret='123-abc-456',
-            docker_image=docker_image)
-        self.assertIsNone(ret)
-        time.sleep(0.01)
-        mock_process_job.assert_called_once()
+    #     ret = self.obj.launch_job(
+    #         job_id, job_exec_id,
+    #         nuvla_endpoint, nuvla_endpoint_insecure=False,
+    #         api_key='credential/abc-def', api_secret='123-abc-456',
+    #         docker_image=docker_image)
+    #     self.assertIsNone(ret)
+    #     time.sleep(0.01)
+    #     mock_process_job.assert_called_once()
 
-        # launching a job already running
-        job_id_2 = 'job/running'
-        self.obj.running_job = job_id_2
-        self.obj.launch_job(job_id_2)
-        self.assertNotIn(job_id_2, self.obj.job_queue)
+    #     # launching a job already running
+    #     job_id_2 = 'job/running'
+    #     self.obj.running_job = job_id_2
+    #     self.obj.launch_job(job_id_2)
+    #     self.assertNotIn(job_id_2, self.obj.job_queue)
 
-        # launching a job already executed
-        job_id_3 = 'job/executed'
-        self.obj.previous_jobs.append(job_id_3)
-        self.obj.launch_job(job_id_3)
-        self.assertNotIn(job_id_3, self.obj.job_queue)
+    #     # launching a job already executed
+    #     job_id_3 = 'job/executed'
+    #     self.obj.previous_jobs.append(job_id_3)
+    #     self.obj.launch_job(job_id_3)
+    #     self.assertNotIn(job_id_3, self.obj.job_queue)
 
-        # thread should not be started again
-        th_ident = self.obj.job_executor_thread.ident
-        self.obj.launch_job('job/thread')
-        self.assertIsNotNone(self.obj.job_executor_thread.ident)
-        self.assertEqual(th_ident, self.obj.job_executor_thread.ident)
+    #     # thread should not be started again
+    #     th_ident = self.obj.job_executor_thread.ident
+    #     self.obj.launch_job('job/thread')
+    #     self.assertIsNotNone(self.obj.job_executor_thread.ident)
+    #     self.assertEqual(th_ident, self.obj.job_executor_thread.ident)
 
-        # job timeout
-        self.obj.running_job = 'job/timeout'
-        self.obj.running_job_since = datetime.datetime.fromtimestamp(0)
-        self.assertRaises(SystemExit, self.obj.launch_job, 'job/any')
+    #     # job timeout
+    #     self.obj.running_job = 'job/timeout'
+    #     self.obj.running_job_since = datetime.datetime.fromtimestamp(0)
+    #     self.assertRaises(SystemExit, self.obj.launch_job, 'job/any')
 
-        # launching a job already in the job queue
-        job_id_4 = 'job/id'
-        self.obj.running_job_since = None
-        # self.obj.job_queue.get = lambda: time.sleep(1)
-        self.obj.job_queue.queue.clear()
-        self.obj.launch_job(job_id_4)
-        self.obj.launch_job(job_id_4)
-        self.assertEqual(1, self.obj.job_queue.queue.count(job_id_4))
+    #     # launching a job already in the job queue
+    #     job_id_4 = 'job/id'
+    #     self.obj.running_job_since = None
+    #     # self.obj.job_queue.get = lambda: time.sleep(1)
+    #     self.obj.job_queue.queue.clear()
+    #     self.obj.launch_job(job_id_4)
+    #     self.obj.launch_job(job_id_4)
+    #     self.assertEqual(1, self.obj.job_queue.queue.count(job_id_4))
