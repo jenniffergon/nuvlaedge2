@@ -48,6 +48,38 @@ class WorkerManager:
         else:
             logger.warning(f"Worker {worker_type.__name__} already registered")
             return False
+        
+    def add_workers(self,
+                   period: int,
+                   worker_type: Type,
+                   init_params: tuple[tuple, dict],
+                   actions: list[str],
+                   initial_delay: float | None = None) -> bool:
+        """
+        Adds a worker to the manager.
+
+        Args:
+            period (int): The time period in seconds at which the worker will execute its actions.
+            worker_type (Type): The class of the worker to be added.
+            init_params (tuple[tuple, dict]): The initialization parameters required to create an instance of the worker class.
+            actions (list[str]): The list of actions that the worker will perform.
+            initial_delay (float | None, optional): An optional initial delay in seconds before the worker starts performing actions. Defaults to None.
+        """
+
+        if worker_type.__class__.__name__ not in self.registered_workers.keys():
+            logger.debug(f"Registering worker: {worker_type.__name__} in manager")
+            self.registered_workers[worker_type.__name__] = (
+                Worker(period=period,
+                       worker_type=worker_type,
+                       init_params=init_params,
+                       actions=actions,
+                       initial_delay=initial_delay)
+            )
+            return True
+        else:
+            logger.warning(f"Worker {worker_type.__name__} already registered")
+            return False
+        
 
     def heal_workers(self):
         """
