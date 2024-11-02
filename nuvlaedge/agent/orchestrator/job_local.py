@@ -102,7 +102,7 @@ class JobLocal:
         return self.running_job_since \
             and (datetime.datetime.now() - self.running_job_since) > datetime.timedelta(seconds=job_timeout)
 
-    def launch_job(self, job_id, *args, **kwargs):
+    def launch_job(self, job_id):
         if self.is_job_timeout():
             self.job_timeout(self.running_job)
 
